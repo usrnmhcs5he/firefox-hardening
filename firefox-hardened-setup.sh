@@ -9,10 +9,11 @@
 #           setup on additional Macs, and independent verification of the
 #           installed app against Apple's signature chain.
 #           App lifecycle: Firefox is installed from Mozilla's DMG with ADMIN
-#           authority and updated the same way (reliable path: replace the
-#           app with the current DMG; the in-app updater with the macOS
-#           helper dialog is an optional shortcut). This script does not
-#           install or update the app.
+#           authority and updated the same way: replace the app with the
+#           current DMG from the admin session. Firefox's in-app updater is
+#           kept only as a NOTIFICATION; installing through its admin helper
+#           dialog loops on the tested setup. This script does not install
+#           or update the app.
 # Target  : macOS (bash 3.2 compatible). Run per-user, no sudo required.
 #
 # Usage   :
@@ -32,11 +33,14 @@
 #   admin authority. RELIABLE PATH (v12): quit Firefox, download the current
 #   DMG, verify it (README), drag it over /Applications/Firefox.app FROM
 #   THE ADMIN ACCOUNT'S OWN SESSION (Fast User Switching; a Finder copy from
-#   the standard session leaves YOU as owner), chown it, then run "verify". SHORTCUT: Firefox's own updater (About Firefox) shows a macOS
-#   helper dialog for the admin password; on some Macs it loops (bouncing
-#   icon, repeated password prompts) - then quit Firefox, delete
-#   ~/Library/Caches/Mozilla/ and use the reliable path. Do NOT leave the
-#   browser stale.
+#   the standard session leaves YOU as owner), chown it, then run "verify".
+#   IN-APP UPDATER: leave it enabled - About Firefox / the update badge is
+#   your notification that a release is out - but do NOT install through
+#   its admin helper dialog: on the tested setup it loops (bouncing Dock
+#   icon, password asked again and again) and can leave root-owned files
+#   in ~/Library/Caches/Mozilla/updates that Firefox cannot clean up.
+#   "verify" and "update" report that state. Do NOT leave the browser
+#   stale.
 #   "./firefox-hardened-setup.sh update" compares the installed version
 #   against Mozilla's latest release; run "verify" after updates.
 #
@@ -185,6 +189,13 @@
 #        the current DMG as admin when the helper dialog hangs. Messages,
 #        usage and header now present DMG replacement as the primary update
 #        path and the in-app helper dialog as an optional shortcut.
+#   v13 - In-app updater demoted to notification-only after on-device
+#        testing: installing through its admin helper dialog loops (bouncing
+#        icon, repeated password prompts). DMG replacement from the admin
+#        session is now THE update procedure in header, usage, messages and
+#        README. New check_update_cache (run by verify and update): reports a
+#        failed/pending update.status or root-owned files under
+#        ~/Library/Caches/Mozilla/updates with the exact cleanup command.
 # =============================================================================
 set -euo pipefail
 
@@ -220,8 +231,10 @@ Usage: ./$SCRIPT_NAME [command]
   update             Staleness check: verifies the app signature, then
                      compares the installed version against Mozilla's
                      latest release (one announced HTTPS request to
-                     product-details.mozilla.org). To update, replace the app
-                     with the current DMG (README, Updating).
+                     product-details.mozilla.org) and reports any stuck
+                     in-app update in ~/Library/Caches/Mozilla/updates.
+                     To update, replace the app with the current DMG from
+                     the admin session (README, Updating).
   verify             Verify the installed app: Apple code-signature chain
                      + Mozilla Team ID ($EXPECTED_TEAM_ID) +
                      Gatekeeper/notarization.
@@ -349,7 +362,44 @@ verify_app_signature() {
     else
         info "App bundle is not writable by this user (tamper-protected)."
         info "Updates need admin authority: replace the app with the current"
-        info "DMG (README, Updating) or use the in-app helper dialog."
+        info "DMG from the ADMIN session (README, Updating)."
+    fi
+}
+
+# Firefox's in-app updater stages downloads under ~/Library/Caches/Mozilla/
+# updates (a directory per install path, "updates/0/update.status" inside).
+# A failed status there, or files not owned by this user (left behind when
+# the updater ran elevated as root), is the state behind the helper-dialog
+# loop: Firefox retries the stuck update on every launch and asks for the
+# admin password each time. Report it; never fix it silently.
+UPDATE_CACHE="$HOME/Library/Caches/Mozilla/updates"
+check_update_cache() {
+    local f st foreign me
+    [ -d "$UPDATE_CACHE" ] || { info "No staged in-app update present."; return 0; }
+    me="$(id -un)"
+    find "$UPDATE_CACHE" -name update.status -print 2>/dev/null | while IFS= read -r f; do
+        st="$(tr -d '\n' < "$f" 2>/dev/null || true)"
+        case "$st" in
+            failed*)
+                warn "STUCK in-app update ($st): $f"
+                warn "This is what drives the helper-dialog loop. Do the DMG"
+                warn "replacement (README, Updating), then clear the cache:"
+                warn "    rm -rf \"$UPDATE_CACHE\""
+                ;;
+            pending*|applied*|downloading)
+                warn "An in-app update is staged ($st). Do NOT install it via the"
+                warn "helper dialog - do the DMG replacement instead, then:"
+                warn "    rm -rf \"$UPDATE_CACHE\""
+                ;;
+            *) info "Update cache status: ${st:-empty} ($f)" ;;
+        esac
+    done
+    foreign="$(find "$UPDATE_CACHE" ! -user "$me" -print 2>/dev/null | head -5)"
+    if [ -n "$foreign" ]; then
+        warn "Update cache has files NOT owned by $me (left by an elevated"
+        warn "updater run). Firefox cannot clean these up itself:"
+        printf '%s\n' "$foreign" | while IFS= read -r f; do warn "    $f"; done
+        warn "Remove them from an ADMIN session:  sudo rm -rf \"$UPDATE_CACHE\""
     fi
 }
 
@@ -462,10 +512,10 @@ EOF
 
     # --- 7. Summary of remaining manual steps --------------------------------
     printf '\nDone.\n'
-    warn "UPDATE MODEL: updates need admin authority. Reliable path: replace"
-    warn "/Applications/Firefox.app with the current DMG (README, Updating)."
-    warn "The in-app helper dialog is an optional shortcut; if it loops, quit"
-    warn "Firefox, delete ~/Library/Caches/Mozilla/ and use the DMG path."
+    warn "UPDATE MODEL: updates need admin authority. Replace"
+    warn "/Applications/Firefox.app with the current DMG from the ADMIN"
+    warn "session (README, Updating). Treat Firefox's own update prompt as a"
+    warn "notification only - installing via its helper dialog loops."
     printf '\nRemaining one-time manual steps (in Firefox, profile "%s"):\n' "$PROFILE_NAME"
     printf '  1. Launch:  %s -P %s\n' "$FIREFOX_BIN" "$PROFILE_NAME"
     cat <<'EOF'
@@ -492,10 +542,10 @@ EOF
 Replicating to another Mac: run "./firefox-hardened-setup.sh pack" here,
 copy the bundle + this script over, run "unpack <bundle>" there.
 
-UPDATING FIREFOX: replace the app with the current DMG using admin
-authority (README, Updating). The in-app updater (About Firefox + helper
-dialog) is an optional shortcut. "./firefox-hardened-setup.sh update" tells
-you if you are behind.
+UPDATING FIREFOX: replace the app with the current DMG from the ADMIN
+session (README, Updating). Firefox's own update prompt is a notification
+only; do not install through its helper dialog. "./firefox-hardened-setup.sh
+update" tells you if you are behind.
 
 Updating arkenfox: fetch the new release ONCE, diff it against your current
 user.js, review, replace the vendored copy, delete user.js.sha256 (it will
@@ -517,8 +567,9 @@ do_update() {
         | sed -n 's/.*"LATEST_FIREFOX_VERSION": *"\([^"]*\)".*/\1/p' \
         | head -1 || true)"
     if [ -z "$LATEST" ]; then
-        warn "Could not fetch Mozilla's latest-version info; check manually"
-        warn "via Firefox menu > About Firefox."
+        warn "Could not fetch Mozilla's latest-version info; check"
+        warn "https://www.mozilla.org/firefox/releases/ manually."
+        check_update_cache
         return 0
     fi
     info "Latest Mozilla release: $LATEST"
@@ -526,10 +577,10 @@ do_update() {
         info "Firefox is up to date."
     else
         warn "Installed $APP_VER != latest $LATEST."
-        warn "Update now: replace the app with the current DMG (README,"
-        warn "Updating), or try Firefox menu > About Firefox (helper dialog)."
-        warn "Re-run 'verify' afterwards."
+        warn "Update now: replace the app with the current DMG from the ADMIN"
+        warn "session (README, Updating). Re-run 'verify' afterwards."
     fi
+    check_update_cache
 }
 
 # --- verify ------------------------------------------------------------------
@@ -547,8 +598,9 @@ do_verify() {
     esac
 
     verify_app_signature
+    check_update_cache
     info "Local verification complete (signature chain, Mozilla Team ID,"
-    info "Gatekeeper)."
+    info "Gatekeeper, update-cache state)."
 }
 
 # --------------------------------------------------------------------------
@@ -892,4 +944,4 @@ case "$CMD" in
     help|-h|--help) usage ;;
     *)              usage; fail "Unknown command: $CMD" ;;
 esac
-# 12
+# 13

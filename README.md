@@ -7,7 +7,7 @@
 ![Bash 3.2+](https://img.shields.io/badge/bash-3.2%2B-4EAA25?logo=gnubash&logoColor=white)
 ![macOS](https://img.shields.io/badge/macOS-no%20sudo-000000?logo=apple&logoColor=white)
 ![arkenfox](https://img.shields.io/badge/arkenfox-144.0-orange)
-![Version](https://img.shields.io/badge/version-12-blue)
+![Version](https://img.shields.io/badge/version-13-blue)
 
 </div>
 
@@ -20,10 +20,11 @@ against Apple's signature chain.
 > **Update model.** Firefox is installed from Mozilla's official DMG with
 > **admin authority**. The bundle is deliberately not writable by your everyday
 > user, which blocks tampering. Updates therefore need admin authority too:
-> the **reliable path is replacing the app with the current DMG**
-> ([Updating](#-updating)), about once a month. Firefox's in-app updater with
-> its admin helper dialog is an optional shortcut that can hang on some Macs.
-> Do not leave the browser stale. Homebrew is no longer part of the lifecycle.
+> **you update by replacing the app with the current DMG from the admin
+> session** ([Updating](#-updating)). Firefox's in-app updater stays enabled
+> as your **notification** that a release is out, but do not install through
+> its admin helper dialog: on the tested setup it loops. Do not leave the
+> browser stale. Homebrew is no longer part of the lifecycle.
 
 ## ✨ Features
 
@@ -137,9 +138,10 @@ copy in Downloads.
 
 ## 🔄 Updating
 
-`./firefox-hardened-setup.sh update` tells you whether you are behind.
+`./firefox-hardened-setup.sh update` tells you whether you are behind and
+whether a stuck in-app update is sitting in the cache.
 
-**Reliable path (DMG replacement)**, no logout needed and the profile is untouched:
+**Procedure (DMG replacement)**, no logout needed and the profile is untouched:
 
 1. Quit Firefox.
 2. Download the current DMG from <https://www.mozilla.org/firefox/> and
@@ -153,11 +155,16 @@ copy in Downloads.
 4. `./firefox-hardened-setup.sh verify`. If it reports the bundle as writable,
    the ownership step above was missed or wrong. Fix it from an admin session.
 
-**Shortcut (in-app updater)**: Firefox menu → About Firefox downloads in the
-background, and installing shows the macOS helper dialog where you enter the
-admin password. If it loops (bouncing Dock icon, password asked again and
-again), quit Firefox, delete `~/Library/Caches/Mozilla/`, and use the
-reliable path. Never install an older Firefox than the profile last used.
+**In-app updater = notification only.** The update badge and About Firefox
+tell you a release is out; keep that. Installing from there shows the macOS
+helper dialog for the admin password and, on the tested setup, loops
+(bouncing Dock icon, password asked again and again) even though the bundle
+ownership is correct. If you did click it: quit Firefox, do the procedure
+above, then clear the staged update with
+`rm -rf ~/Library/Caches/Mozilla/updates`. `verify` and `update` report a
+failed or pending staged update, and files in that cache not owned by you
+(left by the elevated updater). Those need `sudo rm -rf` from an admin
+session. Never install an older Firefox than the profile last used.
 
 ## 💾 Profile backup
 
@@ -278,5 +285,5 @@ behavior.
 
 ## 🕘 Version
 
-README revision 8, paired with script **v12**. The full v1–v12 changelog is in
+README revision 9, paired with script **v13**. The full v1–v13 changelog is in
 the script header.
